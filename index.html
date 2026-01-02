@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8" />
+<title>勉強した分だけ遊べるタイマー</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+
+<style>
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif;
+    margin: 0;
+    padding: 0;
+    background: #000; /* 背景アニメ用に黒ベース */
+    overflow: hidden; /* アニメがはみ出さないように */
+  }
+
+  /* 背景アニメ用キャンバス */
+  #bg-canvas {
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+  }
+
+  /* メインUIのラッパー */
+  .content {
+    padding: 16px;
+    background: rgba(255,255,255,0.85);
+    backdrop-filter: blur(6px);
+    min-height: 100vh;
+  }
+
+  h1 {
+    font-size: 20px;
+    text-align: center;
+    margin-bottom: 16px;
+  }
+
+  .timers {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  .card {
+    background: #ffffff;
+    padding: 16px;
+    border-radius: 12px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+  }
+
+  .name {
+    font-size: 18px;
+    font-weight: bold;
+    margin-bottom: 8px;
+  }
+
+  .time-display {
+    font-size: 28px;
+    font-weight: bold;
+    margin-bottom: 4px;
+  }
+
+  .elapsed {
+    font-size: 14px;
+    color: #666;
+    height: 18px;
+    margin-bottom: 8px;
+  }
+
+  .label {
+    font-size: 14px;
+    margin-top: 8px;
+    margin-bottom: 4px;
+  }
+
+  .buttons {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  button {
+    flex: 1;
+    padding: 10px;
+    font-size: 15px;
+    border-radius: 6px;
+    border: none;
+    cursor: pointer;
+  }
+
+  .study {
+    background: #4caf50;
+    color: white;
+  }
+
+  .play {
+    background: #f44336;
+    color: white;
+  }
+
+  button.active {
+    outline: 3px solid #000;
+  }
+
+  .manual {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+  }
+
+  input[type="number"] {
+    width: 70px;
+    padding: 8px;
+    font-size: 13px;
+    border-radius: 6px;
+  }
+
+  .both {
+    margin-top: 16px;
+    padding: 12px;
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+    font-size: 14px;
+  }
+</style>
+</head>
+<body>
+
+<!-- 背景アニメ用キャンバス -->
+<canvas id="bg-canvas"></canvas>
+
+<!-- ここからメインUI -->
+<div class="content">
+<h1>勉強した分だけ遊べるタイマー</h1>
+
+<div class="timers">
+
+  <!-- 長女 -->
+  <div class="card">
+    <div class="name">私は長女</div>
+    <div class="time-display" id="nagyo-remaining">0分</div>
+    <div class="elapsed" id="nagyo-elapsed"></div>
+
+    <div class="label">勉強 / 遊び</div>
+    <div class="buttons">
+      <button id="nagyo-study-btn" class="study">勉強</button>
+      <button id="nagyo-play-btn" class="play">遊び</button>
+    </div>
+
+    <div class="label">手動調整</div>
+    <div class="manual">
+      <input type="number" id="nagyo-manual-input" placeholder="分数" />
+      <button id="nagyo-add-btn" class="study">追加</button>
+      <button id="nagyo-sub-btn" class="play">減算</button>
+    </div>
+  </div>
+
+  <!-- 次女 -->
+  <div class="card">
+    <div class="name">私は次女</div>
+    <div class="time-display" id="jijo-remaining">0分</div>
+    <div class="elapsed" id="jijo-elapsed"></div>
+
+    <div class="label">勉強 / 遊び</div>
+    <div class="buttons">
+      <button id="jijo-study-btn" class="study">勉強</button>
+      <button id="jijo-play-btn" class="play">遊び</button>
+    </div>
+
+    <div class="label">手動調整</div>
+    <div class="manual">
+      <input type="number" id="jijo-manual-input" placeholder="分数" />
+      <button id="jijo-add-btn" class="study">追加</button>
+      <button id="jijo-sub-btn" class="play">減算</button>
+    </div>
+  </div>
+
+</div>
+
+<div class="both" id="both-display">
+  私は長女：0分 ／ 私は次女：0分
+</div>
+
+</div> <!-- .content 終わり -->
+<script>
+/* ============================
+   背景アニメ（軽量抽象アニメ）
+   ============================ */
+const canvas = document.getElementById("bg-canvas");
+const ctx = canvas.getContext("2d");
+
+function resizeCanvas() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resizeCanvas();
+window.addEventListener("resize", resizeCanvas);
+
+// ふわふわ動く丸を生成
+const circles = [];
+for (let i = 0; i < 25; i++) {
+  circles.push({
+    x: Math.random() * canvas.width,
+    y: Math.random() * canvas.height,
+    r: 20 + Math.random() * 40,
+    dx: (Math.random() - 0.5) * 0.3,
+    dy: (Math.random() - 0.5) * 0.3,
+    color: `hsla(${Math.random() * 360}, 70%, 60%, 0.25)`
+  });
+}
+
+function animateBackground() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  for (const c of circles) {
+    ctx.beginPath();
+    ctx.fillStyle = c.color;
+    ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
+    ctx.fill();
+
+    c.x += c.dx;
+    c.y += c.dy;
+
+    // 画面外に出たら反対側へ
+    if (c.x < -c.r) c.x = canvas.width + c.r;
+    if (c.x > canvas.width + c.r) c.x = -c.r;
+    if (c.y < -c.r) c.y = canvas.height + c.r;
+    if (c.y > canvas.height + c.r) c.y = -c.r;
+  }
+
+  requestAnimationFrame(animateBackground);
+}
+animateBackground();
+/* ============================
+   タイマー本体（保存つき）
+   ============================ */
+
+/* --- ストレージキー --- */
+const STORAGE = {
+  nRem: "nagyo_remaining",
+  jRem: "jijo_remaining",
+  nStudy: "nagyo_study_start",
+  nPlay: "nagyo_play_start",
+  jStudy: "jijo_study_start",
+  jPlay: "jijo_play_start",
+};
+
+/* --- DOM --- */
+const nRemEl = document.getElementById("nagyo-remaining");
+const jRemEl = document.getElementById("jijo-remaining");
+const bothEl = document.getElementById("both-display");
+
+const nElapsedEl = document.getElementById("nagyo-elapsed");
+const jElapsedEl = document.getElementById("jijo-elapsed");
+
+const nStudyBtn = document.getElementById("nagyo-study-btn");
+const nPlayBtn = document.getElementById("nagyo-play-btn");
+const jStudyBtn = document.getElementById("jijo-study-btn");
+const jPlayBtn = document.getElementById("jijo-play-btn");
+
+const nInput = document.getElementById("nagyo-manual-input");
+const jInput = document.getElementById("jijo-manual-input");
+const nAdd = document.getElementById("nagyo-add-btn");
+const nSub = document.getElementById("nagyo-sub-btn");
+const jAdd = document.getElementById("jijo-add-btn");
+const jSub = document.getElementById("jijo-sub-btn");
+
+/* --- 状態 --- */
+let nStudyRun = false;
+let nPlayRun = false;
+let jStudyRun = false;
+let jPlayRun = false;
+
+/* --- ユーティリティ --- */
+function get(key) {
+  const v = localStorage.getItem(key);
+  return v ? Number(v) : 0;
+}
+function set(key, v) {
+  localStorage.setItem(key, Math.max(0, Math.round(v)));
+}
+function setStart(key) {
+  localStorage.setItem(key, Date.now());
+}
+function getStart(key) {
+  const v = localStorage.getItem(key);
+  return v ? Number(v) : null;
+}
+function clearStart(key) {
+  localStorage.removeItem(key);
+}
+function fmt(min) {
+  return `${Math.max(0, Math.round(min))}分`;
+}
+function fmtElapsed(sec) {
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s.toString().padStart(2,"0")}`;
+}
+
+/* --- 表示更新 --- */
+function updateDisplay() {
+  const n = get(STORAGE.nRem);
+  const j = get(STORAGE.jRem);
+  nRemEl.textContent = fmt(n);
+  jRemEl.textContent = fmt(j);
+  bothEl.textContent = `私は長女：${fmt(n)} ／ 私は次女：${fmt(j)}`;
+}
+
+/* --- アラーム --- */
+function beep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = "sine";
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    gain.gain.setValueAtTime(0.2, ctx.currentTime);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.5);
+  } catch (e) {}
+}
+/* --- リアルタイム更新（経過時間の表示） --- */
+setInterval(() => {
+  const now = Date.now();
+
+  // 長女：勉強
+  if (nStudyRun) {
+    const st = getStart(STORAGE.nStudy);
+    const sec = (now - st) / 1000;
+    nElapsedEl.textContent = `+${fmtElapsed(sec)}`;
+  }
+  // 長女：遊び
+  else if (nPlayRun) {
+    const st = getStart(STORAGE.nPlay);
+    const sec = (now - st) / 1000;
+    nElapsedEl.textContent = `-${fmtElapsed(sec)}`;
+  } else {
+    nElapsedEl.textContent = "";
+  }
+
+  // 次女：勉強
+  if (jStudyRun) {
+    const st = getStart(STORAGE.jStudy);
+    const sec = (now - st) / 1000;
+    jElapsedEl.textContent = `+${fmtElapsed(sec)}`;
+  }
+  // 次女：遊び
+  else if (jPlayRun) {
+    const st = getStart(STORAGE.jPlay);
+    const sec = (now - st) / 1000;
+    jElapsedEl.textContent = `-${fmtElapsed(sec)}`;
+  } else {
+    jElapsedEl.textContent = "";
+  }
+}, 200);
+
+/* --- スリープ防止（Wake Lock） --- */
+let wakeLock = null;
+async function requestWakeLock() {
+  try {
+    wakeLock = await navigator.wakeLock.request("screen");
+  } catch (e) {}
+}
+function releaseWakeLock() {
+  if (wakeLock) {
+    wakeLock.release();
+    wakeLock = null;
+  }
+}
+
+/* --- ボタン動作 --- */
+
+/* 長女：勉強 */
+nStudyBtn.onclick = () => {
+  if (nPlayRun) return;
+
+  if (!nStudyRun) {
+    nStudyRun = true;
+    setStart(STORAGE.nStudy);
+    nStudyBtn.classList.add("active");
+    requestWakeLock();
+  } else {
+    nStudyRun = false;
+    nStudyBtn.classList.remove("active");
+
+    const sec = (Date.now() - getStart(STORAGE.nStudy)) / 1000;
+    clearStart(STORAGE.nStudy);
+
+    const next = get(STORAGE.nRem) + sec / 60;
+    set(STORAGE.nRem, next);
+    updateDisplay();
+    releaseWakeLock();
+  }
+};
+
+/* 長女：遊び */
+nPlayBtn.onclick = () => {
+  if (nStudyRun) return;
+
+  if (!nPlayRun) {
+    nPlayRun = true;
+    setStart(STORAGE.nPlay);
+    nPlayBtn.classList.add("active");
+    requestWakeLock();
+  } else {
+    nPlayRun = false;
+    nPlayBtn.classList.remove("active");
+
+    const sec = (Date.now() - getStart(STORAGE.nPlay)) / 1000;
+    clearStart(STORAGE.nPlay);
+
+    let next = get(STORAGE.nRem) - sec / 60;
+    if (next <= 0) {
+      next = 0;
+      beep();
+      alert("長女：もう遊べる時間はありません");
+    }
+    set(STORAGE.nRem, next);
+    updateDisplay();
+    releaseWakeLock();
+  }
+};
+
+/* 次女：勉強 */
+jStudyBtn.onclick = () => {
+  if (jPlayRun) return;
+
+  if (!jStudyRun) {
+    jStudyRun = true;
+    setStart(STORAGE.jStudy);
+    jStudyBtn.classList.add("active");
+    requestWakeLock();
+  } else {
+    jStudyRun = false;
+    jStudyBtn.classList.remove("active");
+
+    const sec = (Date.now() - getStart(STORAGE.jStudy)) / 1000;
+    clearStart(STORAGE.jStudy);
+
+    const next = get(STORAGE.jRem) + sec / 60;
+    set(STORAGE.jRem, next);
+    updateDisplay();
+    releaseWakeLock();
+  }
+};
+
+/* 次女：遊び */
+jPlayBtn.onclick = () => {
+  if (jStudyRun) return;
+
+  if (!jPlayRun) {
+    jPlayRun = true;
+    setStart(STORAGE.jPlay);
+    jPlayBtn.classList.add("active");
+    requestWakeLock();
+  } else {
+    jPlayRun = false;
+    jPlayBtn.classList.remove("active");
+
+    const sec = (Date.now() - getStart(STORAGE.jPlay)) / 1000;
+    clearStart(STORAGE.jPlay);
+
+    let next = get(STORAGE.jRem) - sec / 60;
+    if (next <= 0) {
+      next = 0;
+      beep();
+      alert("次女：もう遊べる時間はありません");
+    }
+    set(STORAGE.jRem, next);
+    updateDisplay();
+    releaseWakeLock();
+  }
+};
+
+/* 手動：長女 */
+nAdd.onclick = () => {
+  const v = Number(nInput.value);
+  if (v > 0) {
+    set(STORAGE.nRem, get(STORAGE.nRem) + v);
+    updateDisplay();
+  }
+};
+nSub.onclick = () => {
+  const v = Number(nInput.value);
+  if (v > 0) {
+    let next = get(STORAGE.nRem) - v;
+    if (next <= 0) {
+      next = 0;
+      beep();
+      alert("長女：もう遊べる時間はありません");
+    }
+    set(STORAGE.nRem, next);
+    updateDisplay();
+  }
+};
+
+/* 手動：次女 */
+jAdd.onclick = () => {
+  const v = Number(jInput.value);
+  if (v > 0) {
+    set(STORAGE.jRem, get(STORAGE.jRem) + v);
+    updateDisplay();
+  }
+};
+jSub.onclick = () => {
+  const v = Number(jInput.value);
+  if (v > 0) {
+    let next = get(STORAGE.jRem) - v;
+    if (next <= 0) {
+      next = 0;
+      beep();
+      alert("次女：もう遊べる時間はありません");
+    }
+    set(STORAGE.jRem, next);
+    updateDisplay();
+  }
+};
+
+/* 初期表示 */
+updateDisplay();
+</script>
+
+</body>
+</html>
