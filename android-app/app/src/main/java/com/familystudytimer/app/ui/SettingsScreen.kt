@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -25,6 +26,7 @@ import kotlinx.coroutines.launch
 
 private val DAY_LABELS = listOf("月", "火", "水", "木", "金", "土", "日") // DayOfWeek.value 1..7 に対応
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(childId: Long, repository: StudyRepository, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()

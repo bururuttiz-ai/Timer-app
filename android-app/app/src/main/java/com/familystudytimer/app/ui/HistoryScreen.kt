@@ -1,6 +1,7 @@
 package com.familystudytimer.app.ui
 
 import android.content.Intent
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -26,6 +27,7 @@ import com.familystudytimer.app.data.ChildEntity
 import com.familystudytimer.app.data.DailyRecordEntity
 import com.familystudytimer.app.data.StudyRepository
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HistoryScreen(childId: Long, repository: StudyRepository, onBack: () -> Unit) {
     val context = LocalContext.current
