@@ -46,8 +46,8 @@ class StudyRepository(
     fun observeWeeklyGoals(childId: Long): Flow<List<WeeklyGoalEntity>> =
         db.weeklyGoalDao().observeForChild(childId)
 
-    suspend fun setWeeklyGoal(childId: Long, dayOfWeek: Int, targetMinutes: Int) {
-        db.weeklyGoalDao().upsert(WeeklyGoalEntity(childId, dayOfWeek, targetMinutes))
+    suspend fun setWeeklyGoal(childId: Long, dayOfWeek: Int, startTimeMinutes: Int, targetMinutes: Int) {
+        db.weeklyGoalDao().upsert(WeeklyGoalEntity(childId, dayOfWeek, startTimeMinutes, targetMinutes))
     }
 
     fun observeTodayRecord(childId: Long): Flow<DailyRecordEntity?> =
@@ -123,12 +123,22 @@ class StudyRepository(
         scheduleOrCancelReminder(childId, updated)
     }
 
-    /** 勉強中でなく未達成なら次のアラームを予約、達成済みなら予約中のアラームを消す。 */
+    /**
+     * 勉強中でなく未達成なら次のアラームを予約、達成済みなら予約中のアラームを消す。
+     *
+     * ①開始時刻より前なら、まだ勉強していなくても鳴らさない。①になった時点で1回目が鳴り、
+     * それ以降は③（子どもごとのアラーム間隔）ごとに鳴らし続ける（本メソッドは勉強再開/一時停止/
+     * 手動調整/深夜0時/端末再起動のたびに呼ばれ、その都度「次に鳴らすべき時刻」を再計算する）。
+     */
     private suspend fun scheduleOrCancelReminder(childId: Long, record: DailyRecordEntity) {
         val studying = isStudying(childId)
         if (!studying && !record.achieved && record.goalMinutes > 0) {
             val child = db.childDao().getById(childId) ?: return
-            val next = TimeUtils.nowEpochMillis() + child.alarmIntervalMinutes * 60_000L
+            val today = TimeUtils.today()
+            val startTimeMinutes = db.weeklyGoalDao().get(childId, today.dayOfWeek.value)?.startTimeMinutes ?: 0
+            val scheduledStartMillis = today.atStartOfDay(zone).toInstant().toEpochMilli() + startTimeMinutes * 60_000L
+            val now = TimeUtils.nowEpochMillis()
+            val next = if (now < scheduledStartMillis) scheduledStartMillis else now + child.alarmIntervalMinutes * 60_000L
             alarmScheduler.scheduleReminder(childId, next)
         } else {
             alarmScheduler.cancelReminder(childId)

@@ -5,8 +5,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -22,6 +26,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.familystudytimer.app.data.StudyRepository
+import com.familystudytimer.app.util.TimeUtils
 import kotlinx.coroutines.launch
 
 private val DAY_LABELS = listOf("月", "火", "水", "木", "金", "土", "日") // DayOfWeek.value 1..7 に対応
@@ -32,6 +37,7 @@ fun SettingsScreen(childId: Long, repository: StudyRepository, onBack: () -> Uni
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf("") }
     var alarmInterval by remember { mutableStateOf("15") }
+    val startTimeByDay = remember { mutableStateOf(MutableList(7) { "00:00" }) }
     val goalMinutesByDay = remember { mutableStateOf(MutableList(7) { "" }) }
 
     LaunchedEffect(childId) {
@@ -44,15 +50,31 @@ fun SettingsScreen(childId: Long, repository: StudyRepository, onBack: () -> Uni
 
     LaunchedEffect(childId) {
         repository.observeWeeklyGoals(childId).collect { list ->
-            val updated = MutableList(7) { "" }
+            val updatedStart = MutableList(7) { "00:00" }
+            val updatedGoal = MutableList(7) { "" }
             for (g in list) {
-                if (g.dayOfWeek in 1..7) updated[g.dayOfWeek - 1] = g.targetMinutes.toString()
+                if (g.dayOfWeek in 1..7) {
+                    updatedStart[g.dayOfWeek - 1] = TimeUtils.minutesToHHmm(g.startTimeMinutes)
+                    updatedGoal[g.dayOfWeek - 1] = g.targetMinutes.toString()
+                }
             }
-            goalMinutesByDay.value = updated
+            startTimeByDay.value = updatedStart
+            goalMinutesByDay.value = updatedGoal
         }
     }
 
-    Scaffold(topBar = { TopAppBar(title = { Text("目標・設定") }) }) { padding ->
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("目標・設定") },
+                navigationIcon = {
+                    IconButton(onClick = onBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "戻る")
+                    }
+                },
+            )
+        },
+    ) { padding ->
         Column(
             modifier = Modifier
                 .padding(padding)
@@ -64,17 +86,31 @@ fun SettingsScreen(childId: Long, repository: StudyRepository, onBack: () -> Uni
             OutlinedTextField(
                 value = alarmInterval,
                 onValueChange = { alarmInterval = it.filter { c -> c.isDigit() } },
-                label = { Text("アラーム間隔A（分）") },
+                label = { Text("③ アラーム間隔（分）") },
             )
 
-            Text("曜日ごとの目標学習時間（分）", style = MaterialTheme.typography.titleMedium)
+            Text("曜日ごとの設定：① 開始時刻 ／ ② 目標時間（分）", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "①の時刻になっても勉強ボタンが押されていなければアラームが鳴り、以降は③の間隔で繰り返します。②の合計時間に達すると、その日はもう鳴りません。",
+                style = MaterialTheme.typography.bodySmall,
+            )
             for (i in 0 until 7) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text(DAY_LABELS[i], modifier = Modifier.padding(end = 8.dp))
+                    Text(DAY_LABELS[i], modifier = Modifier.padding(end = 4.dp))
+                    OutlinedTextField(
+                        value = startTimeByDay.value[i],
+                        onValueChange = { v ->
+                            val updated = startTimeByDay.value.toMutableList()
+                            updated[i] = v
+                            startTimeByDay.value = updated
+                        },
+                        label = { Text("① 開始 (HH:mm)") },
+                        modifier = Modifier.fillMaxWidth().weight(1f),
+                    )
                     OutlinedTextField(
                         value = goalMinutesByDay.value[i],
                         onValueChange = { v ->
@@ -83,8 +119,8 @@ fun SettingsScreen(childId: Long, repository: StudyRepository, onBack: () -> Uni
                             updated[i] = filtered
                             goalMinutesByDay.value = updated
                         },
-                        label = { Text("分") },
-                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("② 目標(分)") },
+                        modifier = Modifier.fillMaxWidth().weight(1f),
                     )
                 }
             }
@@ -94,8 +130,9 @@ fun SettingsScreen(childId: Long, repository: StudyRepository, onBack: () -> Uni
                     repository.renameChild(childId, name)
                     repository.setAlarmIntervalMinutes(childId, alarmInterval.toIntOrNull() ?: 15)
                     for (i in 0 until 7) {
-                        val minutes = goalMinutesByDay.value[i].toIntOrNull() ?: 0
-                        repository.setWeeklyGoal(childId, i + 1, minutes)
+                        val startMinutes = TimeUtils.hhmmToMinutes(startTimeByDay.value[i]) ?: 0
+                        val goalMinutes = goalMinutesByDay.value[i].toIntOrNull() ?: 0
+                        repository.setWeeklyGoal(childId, i + 1, startMinutes, goalMinutes)
                     }
                     onBack()
                 }

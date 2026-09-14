@@ -12,7 +12,7 @@ import androidx.room.RoomDatabase
         DailyRecordEntity::class,
         StudyStateEntity::class,
     ],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -30,7 +30,11 @@ abstract class AppDatabase : RoomDatabase() {
                     context.applicationContext,
                     AppDatabase::class.java,
                     "study_timer.db",
-                ).build().also { instance = it }
+                )
+                    // 開発中のスキーマ変更のたびに手動アンインストールしなくて済むよう、
+                    // マイグレーションは書かずに再作成する（家庭内利用アプリのため許容）
+                    .fallbackToDestructiveMigration()
+                    .build().also { instance = it }
             }
     }
 }

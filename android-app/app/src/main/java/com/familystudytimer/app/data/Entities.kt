@@ -13,13 +13,20 @@ data class ChildEntity(
 )
 
 /**
- * 曜日ごとの目標学習時間。dayOfWeek は [java.time.DayOfWeek.getValue] 準拠 (月=1〜日=7)。
+ * 曜日ごとの学習設定。dayOfWeek は [java.time.DayOfWeek.getValue] 準拠 (月=1〜日=7)。
  * (childId, dayOfWeek) で一意。
+ *
+ * - startTimeMinutes：①その日に勉強を始めるべき時刻（0時からの分数。例: 15:30 なら 930）
+ * - targetMinutes：②startTimeMinutes 以降に勉強すべき合計時間（分）。これに達すると「達成」扱いになる
+ *
+ * アラーム間隔（③、何分おきに再度鳴らすか）は曜日ごとではなく [ChildEntity.alarmIntervalMinutes] で
+ * 子どもごとに1つ設定する。
  */
 @Entity(tableName = "weekly_goals", primaryKeys = ["childId", "dayOfWeek"])
 data class WeeklyGoalEntity(
     val childId: Long,
     val dayOfWeek: Int,
+    val startTimeMinutes: Int = 0,
     val targetMinutes: Int,
 )
 
