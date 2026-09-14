@@ -29,11 +29,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.lifecycleScope
 import com.familystudytimer.app.ui.theme.StudyTimerTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+
+/** 反応がなくても鳴らし続けないための上限時間。 */
+private const val RING_TIMEOUT_MILLIS = 60_000L
 
 /**
  * 目覚まし時計のような「全画面アラーム」画面。画面ロック中でも表示され、
- * 音とバイブレーションをボタンが押されるまでループさせる。
+ * 音とバイブレーションを、ボタンが押されるか[RING_TIMEOUT_MILLIS]経つまでループさせる。
  */
 class AlarmRingActivity : ComponentActivity() {
 
@@ -52,6 +58,12 @@ class AlarmRingActivity : ComponentActivity() {
 
         startAlarmSound()
         startVibration()
+
+        // 反応がないまま鳴らし続けないよう、一定時間で自動的に止める（未達成なら次の間隔③でまた鳴る）
+        lifecycleScope.launch {
+            delay(RING_TIMEOUT_MILLIS)
+            acknowledge(childId)
+        }
 
         setContent {
             StudyTimerTheme {
