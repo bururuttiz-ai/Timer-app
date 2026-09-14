@@ -50,6 +50,23 @@ class StudyRepository(
         db.weeklyGoalDao().upsert(WeeklyGoalEntity(childId, dayOfWeek, startTimeMinutes, targetMinutes))
     }
 
+    /**
+     * 設定画面で曜日ごとの目標を変更した直後に呼ぶ。今日の記録は最初にアクセスした時点の目標値を
+     * スナップショットとして保持しているため、後から設定を変えてもそのままでは反映されない。
+     * ここで今日分だけ最新の設定に同期し、アラーム予約もやり直す。
+     */
+    suspend fun refreshTodaySettings(childId: Long) {
+        val today = TimeUtils.today()
+        val latestGoal = db.weeklyGoalDao().get(childId, today.dayOfWeek.value)?.targetMinutes ?: 0
+        val record = getOrCreateTodayRecord(childId)
+        val synced = if (record.goalMinutes != latestGoal) {
+            record.copy(goalMinutes = latestGoal).also { db.dailyRecordDao().upsert(it) }
+        } else {
+            record
+        }
+        scheduleOrCancelReminder(childId, synced)
+    }
+
     fun observeTodayRecord(childId: Long): Flow<DailyRecordEntity?> =
         db.dailyRecordDao().observe(childId, TimeUtils.todayKey())
 

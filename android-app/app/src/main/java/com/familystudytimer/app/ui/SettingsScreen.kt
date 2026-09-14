@@ -140,6 +140,7 @@ fun SettingsScreen(childId: Long, repository: StudyRepository, onBack: () -> Uni
                         val goalMinutes = goalMinutesByDay.value[i].toIntOrNull() ?: 0
                         repository.setWeeklyGoal(childId, i + 1, startTimeByDay.value[i], goalMinutes)
                     }
+                    repository.refreshTodaySettings(childId)
                     onBack()
                 }
             }) {
