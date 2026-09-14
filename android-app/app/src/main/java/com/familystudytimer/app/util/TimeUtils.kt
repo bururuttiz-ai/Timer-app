@@ -34,14 +34,4 @@ object TimeUtils {
         val m = (minutesFromMidnight % 60).coerceIn(0, 59)
         return "%02d:%02d".format(h, m)
     }
-
-    /** "HH:mm" 表示を0時からの分数に変換する。パースできなければ null。 */
-    fun hhmmToMinutes(text: String): Int? {
-        val parts = text.split(":")
-        if (parts.size != 2) return null
-        val h = parts[0].toIntOrNull() ?: return null
-        val m = parts[1].toIntOrNull() ?: return null
-        if (h !in 0..23 || m !in 0..59) return null
-        return h * 60 + m
-    }
 }

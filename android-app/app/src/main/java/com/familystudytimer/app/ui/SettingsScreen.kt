@@ -5,6 +5,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -23,13 +26,17 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.familystudytimer.app.data.StudyRepository
 import com.familystudytimer.app.util.TimeUtils
 import kotlinx.coroutines.launch
 
 private val DAY_LABELS = listOf("月", "火", "水", "木", "金", "土", "日") // DayOfWeek.value 1..7 に対応
+private const val MINUTES_PER_DAY = 24 * 60
+private const val STEP_MINUTES = 15
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -37,7 +44,7 @@ fun SettingsScreen(childId: Long, repository: StudyRepository, onBack: () -> Uni
     val scope = rememberCoroutineScope()
     var name by remember { mutableStateOf("") }
     var alarmInterval by remember { mutableStateOf("15") }
-    val startTimeByDay = remember { mutableStateOf(MutableList(7) { "00:00" }) }
+    val startTimeByDay = remember { mutableStateOf(MutableList(7) { 0 }) }
     val goalMinutesByDay = remember { mutableStateOf(MutableList(7) { "" }) }
 
     LaunchedEffect(childId) {
@@ -50,11 +57,11 @@ fun SettingsScreen(childId: Long, repository: StudyRepository, onBack: () -> Uni
 
     LaunchedEffect(childId) {
         repository.observeWeeklyGoals(childId).collect { list ->
-            val updatedStart = MutableList(7) { "00:00" }
+            val updatedStart = MutableList(7) { 0 }
             val updatedGoal = MutableList(7) { "" }
             for (g in list) {
                 if (g.dayOfWeek in 1..7) {
-                    updatedStart[g.dayOfWeek - 1] = TimeUtils.minutesToHHmm(g.startTimeMinutes)
+                    updatedStart[g.dayOfWeek - 1] = g.startTimeMinutes
                     updatedGoal[g.dayOfWeek - 1] = g.targetMinutes.toString()
                 }
             }
@@ -78,6 +85,7 @@ fun SettingsScreen(childId: Long, repository: StudyRepository, onBack: () -> Uni
         Column(
             modifier = Modifier
                 .padding(padding)
+                .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -97,19 +105,18 @@ fun SettingsScreen(childId: Long, repository: StudyRepository, onBack: () -> Uni
             for (i in 0 until 7) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Text(DAY_LABELS[i], modifier = Modifier.padding(end = 4.dp))
-                    OutlinedTextField(
-                        value = startTimeByDay.value[i],
-                        onValueChange = { v ->
+                    Text(DAY_LABELS[i], modifier = Modifier.width(20.dp))
+                    Text("①", modifier = Modifier.padding(end = 2.dp))
+                    TimeStepper(
+                        minutes = startTimeByDay.value[i],
+                        onChange = { newMinutes ->
                             val updated = startTimeByDay.value.toMutableList()
-                            updated[i] = v
+                            updated[i] = newMinutes
                             startTimeByDay.value = updated
                         },
-                        label = { Text("① 開始 (HH:mm)") },
-                        modifier = Modifier.fillMaxWidth().weight(1f),
                     )
                     OutlinedTextField(
                         value = goalMinutesByDay.value[i],
@@ -119,8 +126,8 @@ fun SettingsScreen(childId: Long, repository: StudyRepository, onBack: () -> Uni
                             updated[i] = filtered
                             goalMinutesByDay.value = updated
                         },
-                        label = { Text("② 目標(分)") },
-                        modifier = Modifier.fillMaxWidth().weight(1f),
+                        label = { Text("② 分") },
+                        modifier = Modifier.weight(1f),
                     )
                 }
             }
@@ -130,15 +137,33 @@ fun SettingsScreen(childId: Long, repository: StudyRepository, onBack: () -> Uni
                     repository.renameChild(childId, name)
                     repository.setAlarmIntervalMinutes(childId, alarmInterval.toIntOrNull() ?: 15)
                     for (i in 0 until 7) {
-                        val startMinutes = TimeUtils.hhmmToMinutes(startTimeByDay.value[i]) ?: 0
                         val goalMinutes = goalMinutesByDay.value[i].toIntOrNull() ?: 0
-                        repository.setWeeklyGoal(childId, i + 1, startMinutes, goalMinutes)
+                        repository.setWeeklyGoal(childId, i + 1, startTimeByDay.value[i], goalMinutes)
                     }
                     onBack()
                 }
             }) {
                 Text("保存する")
             }
+        }
+    }
+}
+
+/** ①開始時刻の入力用。手打ちさせず、15分刻みで±ボタンにより24時間をループする。 */
+@Composable
+private fun TimeStepper(minutes: Int, onChange: (Int) -> Unit) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = { onChange((minutes - STEP_MINUTES + MINUTES_PER_DAY) % MINUTES_PER_DAY) }) {
+            Text("－")
+        }
+        Text(
+            TimeUtils.minutesToHHmm(minutes),
+            modifier = Modifier.width(52.dp),
+            textAlign = TextAlign.Center,
+            style = MaterialTheme.typography.bodyLarge,
+        )
+        IconButton(onClick = { onChange((minutes + STEP_MINUTES) % MINUTES_PER_DAY) }) {
+            Text("＋")
         }
     }
 }
