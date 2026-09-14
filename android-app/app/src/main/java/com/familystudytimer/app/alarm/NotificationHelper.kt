@@ -2,14 +2,13 @@ package com.familystudytimer.app.alarm
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.content.Context
+import android.content.Intent
 import android.media.RingtoneManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
-import com.familystudytimer.app.MainActivity
 import com.familystudytimer.app.R
-import android.app.PendingIntent
-import android.content.Intent
 
 private const val CHANNEL_ID = "study_reminder"
 
@@ -37,12 +36,19 @@ object NotificationHelper {
         manager.createNotificationChannel(channel)
     }
 
+    /**
+     * 目覚まし時計のような全画面アラーム画面（[AlarmRingActivity]）を開くための通知を出す。
+     * 画面ロック中・スリープ中はフルスクリーンで自動的に立ち上がり、画面が点いている間は
+     * 通常の通知バナーとして表示され、タップすると同じ画面が開く。
+     */
     fun showReminder(context: Context, childId: Long, childName: String, remainingMinutes: Int) {
-        val openAppIntent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        val ringIntent = Intent(context, AlarmRingActivity::class.java).apply {
+            putExtra(EXTRA_CHILD_ID, childId)
+            putExtra(EXTRA_CHILD_NAME, childName)
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
-        val contentIntent = PendingIntent.getActivity(
-            context, childId.toInt(), openAppIntent,
+        val ringPendingIntent = PendingIntent.getActivity(
+            context, childId.toInt(), ringIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
 
@@ -55,7 +61,8 @@ object NotificationHelper {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setAutoCancel(true)
-            .setContentIntent(contentIntent)
+            .setContentIntent(ringPendingIntent)
+            .setFullScreenIntent(ringPendingIntent, true)
             .build()
 
         val manager = context.getSystemService(NotificationManager::class.java)

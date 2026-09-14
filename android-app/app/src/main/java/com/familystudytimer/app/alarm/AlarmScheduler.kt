@@ -7,6 +7,7 @@ import android.content.Intent
 import android.os.Build
 
 const val EXTRA_CHILD_ID = "child_id"
+const val EXTRA_CHILD_NAME = "child_name"
 
 /** ReminderAlarmReceiver 用のリクエストコード帯（子どもID分だけ予約）。MidnightResetReceiver とは重複しない値を使う。 */
 private const val REMINDER_REQUEST_CODE_BASE = 1000
