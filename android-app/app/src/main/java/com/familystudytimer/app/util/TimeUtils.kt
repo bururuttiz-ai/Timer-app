@@ -34,4 +34,11 @@ object TimeUtils {
         val m = (minutesFromMidnight % 60).coerceIn(0, 59)
         return "%02d:%02d".format(h, m)
     }
+
+    /** 秒数を "分:秒"（例: 125分7秒→"125:07"）に変換する。勉強中の経過表示用。 */
+    fun formatMinSec(totalSeconds: Long): String {
+        val m = totalSeconds / 60
+        val s = totalSeconds % 60
+        return "%d:%02d".format(m, s)
+    }
 }
