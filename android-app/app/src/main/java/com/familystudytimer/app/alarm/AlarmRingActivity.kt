@@ -29,10 +29,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.lifecycleScope
-import com.familystudytimer.app.StudyTimerApp
 import com.familystudytimer.app.ui.theme.StudyTimerTheme
-import kotlinx.coroutines.launch
 
 /**
  * 目覚まし時計のような「全画面アラーム」画面。画面ロック中でも表示され、
@@ -60,19 +57,19 @@ class AlarmRingActivity : ComponentActivity() {
             StudyTimerTheme {
                 AlarmRingScreen(
                     childName = childName,
-                    onStopAndStudy = { stopAndStartStudy(childId) },
+                    onAcknowledge = { acknowledge(childId) },
                 )
             }
         }
     }
 
-    private fun stopAndStartStudy(childId: Long) {
+    /**
+     * 「わかったよ」ボタン。アラーム音を止めるだけで、勉強を自動で開始はしない
+     * （その場で勉強できない事情もあり得るため）。未達成のままなら次の間隔でまた鳴る。
+     */
+    private fun acknowledge(childId: Long) {
         stopAlarmSound()
         stopVibration()
-        val app = application as StudyTimerApp
-        if (childId >= 0) {
-            lifecycleScope.launch { app.repository.startStudy(childId) }
-        }
         getSystemService(NotificationManager::class.java)?.cancel(childId.toInt())
         finish()
     }
@@ -128,7 +125,7 @@ class AlarmRingActivity : ComponentActivity() {
 }
 
 @Composable
-private fun AlarmRingScreen(childName: String, onStopAndStudy: () -> Unit) {
+private fun AlarmRingScreen(childName: String, onAcknowledge: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -149,14 +146,14 @@ private fun AlarmRingScreen(childName: String, onStopAndStudy: () -> Unit) {
                 color = MaterialTheme.colorScheme.onSecondaryContainer,
             )
             Button(
-                onClick = onStopAndStudy,
+                onClick = onAcknowledge,
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(72.dp),
                 shape = MaterialTheme.shapes.extraLarge,
             ) {
                 Text(
-                    "▶ 勉強をはじめる",
+                    "わかったよ",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold,
                 )
