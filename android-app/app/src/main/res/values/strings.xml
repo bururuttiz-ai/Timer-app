@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">じしゅ勉タイマー</string>
+    <string name="notification_channel_name">勉強リマインダー</string>
+    <string name="notification_channel_description">目標の勉強時間が終わっていないときに鳴らすアラームです</string>
+    <string name="notification_title">まだ勉強の時間が残っているよ</string>
+    <string name="notification_text_format">%1$s さん、今日の目標まであと %2$d 分です。勉強ボタンを押してね。</string>
+</resources>
