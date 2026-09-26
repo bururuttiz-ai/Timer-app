@@ -112,7 +112,27 @@ def fetch_yahoo(ticker: str, start: str) -> pd.Series:
     close = df["Close"]
     if isinstance(close, pd.DataFrame):
         close = close.iloc[:, 0]
-    return to_month_end(close.rename(ticker))
+    return to_month_end(fix_unadjusted_splits(close.dropna(), ticker).rename(ticker))
+
+
+def fix_unadjusted_splits(close: pd.Series, ticker: str) -> pd.Series:
+    """Yahoo のデータで株式分割が未調整のまま残っていることがあるため補正する。
+
+    1日で価格がほぼ整数分の1（または整数倍）に動いた箇所を分割とみなし、それ以前の価格を割り戻す。
+    """
+    close = close.copy()
+    ratio = (close / close.shift()).dropna()
+    for date, r in ratio.items():
+        if 0.4 <= r <= 2.5:
+            continue
+        k = round(1 / r) if r < 1 else round(r)
+        implied = r * k if r < 1 else r / k
+        if k < 2 or abs(implied - 1) > 0.15:
+            continue
+        factor = 1 / k if r < 1 else k
+        close.loc[close.index < date] *= factor
+        print(f"  {ticker}: {date:%Y-%m-%d} に未調整の分割（{k}倍）を検出したので補正しました")
+    return close
 
 
 def fetch_fred(series_id: str) -> pd.Series:
