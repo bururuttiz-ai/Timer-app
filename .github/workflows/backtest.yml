@@ -27,8 +27,8 @@ jobs:
         working-directory: investment-backtest
         run: |
           rm -rf results && mkdir -p results
-          python backtest.py --out results/long 2>&1 | tee results/long.txt
-          python backtest.py --mode etf --out results/etf 2>&1 | tee results/etf.txt
+          python backtest.py --out results/long --save-data results/data_long 2>&1 | tee results/long.txt
+          python backtest.py --mode etf --out results/etf --save-data results/data_etf 2>&1 | tee results/etf.txt
       - name: Commit results
         run: |
           git config user.name "github-actions[bot]"

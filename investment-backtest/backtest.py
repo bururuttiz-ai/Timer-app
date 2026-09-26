@@ -166,6 +166,23 @@ def load_real(assets: dict, start: str):
     return pd.DataFrame(prices), fx, rates
 
 
+def save_data(folder: Path, prices: pd.DataFrame, fx: pd.Series, rates):
+    folder.mkdir(parents=True, exist_ok=True)
+    prices.to_csv(folder / "prices.csv")
+    fx.rename("USDJPY").to_csv(folder / "fx.csv")
+    if rates is not None:
+        rates.to_csv(folder / "rates.csv")
+
+
+def load_saved(folder: Path):
+    """--save-data で保存した CSV から読み込む（ネット接続不要）。"""
+    prices = pd.read_csv(folder / "prices.csv", index_col=0, parse_dates=True)
+    fx = pd.read_csv(folder / "fx.csv", index_col=0, parse_dates=True).iloc[:, 0]
+    rates_path = folder / "rates.csv"
+    rates = pd.read_csv(rates_path, index_col=0, parse_dates=True) if rates_path.exists() else None
+    return prices, fx, rates
+
+
 def load_demo(assets: dict, start: str, seed: int = 0):
     """ネット接続なしで動作確認するためのダミーデータ（実在の値ではありません）。"""
     rng = np.random.default_rng(seed)
@@ -583,6 +600,8 @@ def main(argv=None):
     ap.add_argument("--no-hedge", action="store_true", help="為替ヘッジ比較を省略")
     ap.add_argument("--demo", action="store_true", help="ダミーデータで動作確認（ネット接続不要）")
     ap.add_argument("--out", default="output", help="出力フォルダ")
+    ap.add_argument("--save-data", help="取得したデータを CSV で保存するフォルダ")
+    ap.add_argument("--data-dir", help="ネットから取得せず、--save-data で保存した CSV を使う")
     args = ap.parse_args(argv)
 
     preset = PRESETS[args.mode]
@@ -604,7 +623,16 @@ def main(argv=None):
         print("  ※ダミーデータです。結果は実際の市場とは無関係です。")
         prices, fx, rates = load_demo(assets, start)
     else:
-        prices, fx, rates = load_real(assets, start)
+        if args.data_dir:
+            prices, fx, rates = load_saved(Path(args.data_dir))
+            prices = prices[[a for a in assets if a in prices]]
+            missing = [a for a in assets if a not in prices]
+            if missing:
+                raise SystemExit(f"保存データに {missing} がありません。ネットから取得し直してください。")
+        else:
+            prices, fx, rates = load_real(assets, start)
+    if args.save_data:
+        save_data(Path(args.save_data), prices, fx, rates)
 
     jpy, local, fx_ret = build_returns(prices, fx, rates, assets, hedge)
     sl = slice(start, args.end)
