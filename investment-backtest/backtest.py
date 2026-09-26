@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
@@ -97,7 +98,15 @@ def to_month_end(s: pd.Series) -> pd.Series:
 def fetch_yahoo(ticker: str, start: str) -> pd.Series:
     import yfinance as yf
 
-    df = yf.download(ticker, start=start, auto_adjust=True, progress=False)
+    df = None
+    for attempt in range(4):  # Yahoo は一時的に失敗することがあるので再試行
+        try:
+            df = yf.download(ticker, start=start, auto_adjust=True, progress=False)
+        except Exception as e:
+            print(f"  {ticker} の取得に失敗（{e}）。再試行します…")
+        if df is not None and not df.empty:
+            break
+        time.sleep(5 * (attempt + 1))
     if df is None or df.empty:
         raise RuntimeError(f"Yahoo Finance から {ticker} を取得できませんでした")
     close = df["Close"]
