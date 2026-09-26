@@ -29,6 +29,7 @@ jobs:
           rm -rf results && mkdir -p results
           python backtest.py --out results/long --save-data results/data_long 2>&1 | tee results/long.txt
           python backtest.py --mode etf --out results/etf --save-data results/data_etf 2>&1 | tee results/etf.txt
+          python scenarios.py --data-dir results/data_long --out results/scenarios.csv 2>&1 | tee results/scenarios.txt
       - name: Commit results
         run: |
           git config user.name "github-actions[bot]"

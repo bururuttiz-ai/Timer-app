@@ -49,6 +49,20 @@ python backtest.py --demo       # ネット接続なしでダミーデータを�
 python backtest.py --cost 0.001 --band 0.10 --rebalance-window 15
 ```
 
+## シナリオ比較（scenarios.py）
+
+過去の成績は「最近の日本株の急騰」を含むかどうかで変わります。そこで、実際に起きた20年間の値動き
+（日本のバブル崩壊後、2000年からの一進一退、米国の直近20年の右肩上がり）を「これからの20年」に当てはめます。
+日本と米国のそれぞれに当てはめ、為替3通り（横ばい／年2%の円高／年2%の円安）と組み合わせて、配分ごとの20年後を比べます。
+
+```bash
+python backtest.py --save-data results/data_long   # 一度だけ（データを保存）
+python scenarios.py --data-dir results/data_long
+```
+
+`--data-dir` を使うと、保存済みのデータで `backtest.py` もネット接続なしで再実行できます
+（例: `python backtest.py --data-dir results/data_long --end 2012-12-31` で急騰前までの結果）。
+
 ## カスタマイズ例
 
 ```bash
