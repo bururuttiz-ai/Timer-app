@@ -122,7 +122,7 @@ def fetch_usdjpy(start: str) -> pd.Series:
         return fetch_yahoo("JPY=X", start)
 
 
-def load_real(assets: dict, start: str, hedge: bool):
+def load_real(assets: dict, start: str):
     prices = {}
     for name, (ticker, _ccy) in assets.items():
         print(f"  {name}: {ticker} を取得中…")
@@ -130,12 +130,11 @@ def load_real(assets: dict, start: str, hedge: bool):
     print("  ドル円を取得中…")
     fx = fetch_usdjpy(start)
     rates = None
-    if hedge:
-        try:
-            print("  日米短期金利を取得中（ヘッジコスト用）…")
-            rates = pd.DataFrame({"US": fetch_fred(FRED_RATE_US), "JP": fetch_fred(FRED_RATE_JP)})
-        except Exception as e:
-            print(f"  金利データを取得できなかったため、ヘッジ比較は省略します（{e}）")
+    try:
+        print("  日米短期金利を取得中（ヘッジコストとシャープレシオ用）…")
+        rates = pd.DataFrame({"US": fetch_fred(FRED_RATE_US), "JP": fetch_fred(FRED_RATE_JP)})
+    except Exception as e:
+        print(f"  金利データを取得できませんでした（{e}）。ヘッジ比較は省略し、無リスク金利は0%とします。")
     return pd.DataFrame(prices), fx, rates
 
 
@@ -178,23 +177,109 @@ def build_returns(prices: pd.DataFrame, fx: pd.Series, rates, assets: dict, hedg
     return pd.DataFrame(jpy), pd.DataFrame(local), fx_ret
 
 
-def simulate_portfolio(rets: pd.DataFrame, weights: dict, rebalance: str) -> pd.Series:
+REBALANCE_METHODS = ["none", "annual", "quarterly", "monthly", "band"]
+
+
+def _is_rebalance_month(mode: str, month: int) -> bool:
+    return mode == "monthly" or (mode == "quarterly" and month % 3 == 0) or (mode == "annual" and month == 12)
+
+
+def simulate_array(R: np.ndarray, months: np.ndarray, w: np.ndarray, mode: str,
+                   band: float = 0.05, cost: float = 0.0):
+    """月次リターン行列 R（T×資産数）から、配分 w のポートフォリオの月次リターンと売買回数を返す。
+
+    mode: none（買いっぱなし）/ annual（毎年12月末）/ quarterly / monthly /
+          band（いずれかの資産が目標比率から band 以上ずれたら戻す）
+    cost: 売買額に対するコスト率（例 0.001 = 0.1%）
+    """
+    hold = w.copy()
+    out = np.empty(len(R))
+    trades = 0
+    for t in range(len(R)):
+        hold = hold * (1 + R[t])
+        total = hold.sum()
+        cur = hold / total
+        drift = np.abs(cur - w)
+        if mode == "band":
+            do = drift.max() >= band
+        else:
+            do = _is_rebalance_month(mode, months[t])
+        if do and drift.sum() > 0:
+            total *= 1 - cost * drift.sum()
+            hold = w.copy()
+            trades += 1
+        else:
+            hold = cur
+        out[t] = total - 1
+    return out, trades
+
+
+def simulate_portfolio(rets: pd.DataFrame, weights: dict, mode: str, band: float = 0.05,
+                       cost: float = 0.0) -> pd.Series:
     cols = list(weights)
     r = rets[cols].dropna()
     w = np.array([weights[c] for c in cols], dtype=float)
-    w = w / w.sum()
-    hold = w.copy()
-    out = []
-    for date, row in r.iterrows():
-        hold = hold * (1 + row.values)
-        total = hold.sum()
-        prev = out[-1][1] if out else 1.0
-        out.append((date, prev * total))
-        hold = hold / total
-        if rebalance == "monthly" or (rebalance == "annual" and date.month == 12):
-            hold = w.copy()
-    s = pd.Series(dict(out))
-    return s.pct_change().fillna(s.iloc[0] - 1)
+    out, _ = simulate_array(r.values, r.index.month.values, w / w.sum(), mode, band, cost)
+    return pd.Series(out, r.index)
+
+
+def sharpe(r, rf) -> float:
+    """年率シャープレシオ＝（平均超過リターン×12）÷（超過リターンの標準偏差×√12）"""
+    ex = np.asarray(r) - np.asarray(rf)
+    sd = ex.std(ddof=1)
+    return np.nan if sd == 0 else ex.mean() * 12 / (sd * np.sqrt(12))
+
+
+def compare_rebalance(rets: pd.DataFrame, rf: pd.Series, portfolios: dict, window_years: int,
+                      band: float, cost: float, step: int = 1):
+    """リバランス方法ごとに、全期間の成績と、N年ローリング窓でのシャープレシオを比べる。
+
+    ローリング窓は「その月に始めて N 年保有した場合」を毎月ずらして計算する。
+    1つの期間だけだと偶然に左右されるので、何割の開始時点で買いっぱなしに勝てたかを見る。
+    """
+    full_rows, win_rows, rolling = [], [], {}
+    m = window_years * 12
+    for pname, weights in portfolios.items():
+        cols = list(weights)
+        r = rets[cols].dropna()
+        if len(r) < 24:
+            continue
+        w = np.array([weights[c] for c in cols], dtype=float)
+        w = w / w.sum()
+        R, months = r.values, r.index.month.values
+        rf_a = rf.reindex(r.index).fillna(0).values
+        for mode in REBALANCE_METHODS:
+            out, trades = simulate_array(R, months, w, mode, band, cost)
+            ser = pd.Series(out, r.index)
+            full_rows.append({
+                "配分": pname, "方法": mode,
+                "年率リターン": cagr(ser), "年率リスク": ser.std() * np.sqrt(12),
+                "シャープ": sharpe(out, rf_a), "最大下落": drawdown(ser).min(),
+                "売買回数/年": trades / (len(r) / 12),
+            })
+        if len(r) < m + 12:
+            continue
+        starts = range(0, len(r) - m + 1, step)
+        sh = {mode: [] for mode in REBALANCE_METHODS}
+        for i in starts:
+            Rw, mw, rfw = R[i:i + m], months[i:i + m], rf_a[i:i + m]
+            for mode in REBALANCE_METHODS:
+                out, _ = simulate_array(Rw, mw, w, mode, band, cost)
+                sh[mode].append(sharpe(out, rfw))
+        ends = r.index[[i + m - 1 for i in starts]]
+        base = np.array(sh["none"])
+        rolling[pname] = {}
+        for mode in REBALANCE_METHODS[1:]:
+            diff = np.array(sh[mode]) - base
+            rolling[pname][mode] = pd.Series(diff, ends)
+            win_rows.append({
+                "配分": pname, "方法": mode, "窓の数": len(diff),
+                "買いっぱなしに勝った割合": (diff > 0).mean(),
+                "シャープ差_中央": np.median(diff), "シャープ差_最小": diff.min(), "シャープ差_最大": diff.max(),
+            })
+    full = pd.DataFrame(full_rows).set_index(["配分", "方法"])
+    wins = pd.DataFrame(win_rows).set_index(["配分", "方法"]) if win_rows else pd.DataFrame()
+    return full, wins, rolling
 
 
 def cagr(r: pd.Series) -> float:
@@ -224,7 +309,7 @@ def rolling_cagr(r: pd.Series, years: int) -> pd.Series:
     return np.expm1(logr.rolling(m).sum() * 12 / m)
 
 
-def summarize(rets: pd.DataFrame, windows: list[int]) -> pd.DataFrame:
+def summarize(rets: pd.DataFrame, rf: pd.Series, windows: list[int]) -> pd.DataFrame:
     rows = {}
     for name in rets:
         r = rets[name].dropna()
@@ -232,6 +317,7 @@ def summarize(rets: pd.DataFrame, windows: list[int]) -> pd.DataFrame:
             "開始": r.index[0].strftime("%Y-%m"),
             "年率リターン": cagr(r),
             "年率リスク": r.std() * np.sqrt(12),
+            "シャープ": sharpe(r, rf.reindex(r.index).fillna(0)),
             "最大下落": drawdown(r).min(),
             "最長含み損(年)": longest_underwater(r) / 12,
             "最悪12ヶ月": (np.expm1(np.log1p(r).rolling(12).sum())).min(),
@@ -391,6 +477,27 @@ def plot_fx(local: pd.DataFrame, jpy: pd.DataFrame, fx_ret: pd.Series, assets: d
     plt.close(fig)
 
 
+def plot_rebalance(rolling: dict, window_years: int, out: Path):
+    if not rolling:
+        return
+    names = list(rolling)
+    fig, axes = new_fig(len(names), 4.2)
+    colors = {mode: PALETTE[i] for i, mode in enumerate(REBALANCE_METHODS[1:])}
+    for ax, pname in zip(axes, names):
+        series = rolling[pname]
+        for mode, s in series.items():
+            ax.plot(s.index, s.values, lw=2, color=colors[mode], label=mode)
+        ax.axhline(0, color=TEXT_SECONDARY, lw=1)
+        style_axes(ax, f"{pname}: Sharpe ratio minus buy-and-hold, rolling {window_years}y (above 0 = rebalancing helped)",
+                   "Sharpe diff")
+        ax.margins(x=0.1)
+        label_line_ends(ax, series, colors, lambda v: f"{v:+.2f}")
+        ax.legend(frameon=False, loc="upper left", fontsize=9, labelcolor=TEXT_SECONDARY)
+    fig.tight_layout()
+    fig.savefig(out, dpi=130, facecolor=SURFACE)
+    plt.close(fig)
+
+
 # ---------------------------------------------------------------- メイン
 
 
@@ -422,8 +529,12 @@ def fmt_table(df: pd.DataFrame) -> str:
 
     shown = df.copy()
     for c in shown.columns:
-        if "年)" in c:
+        if "年)" in c or "回数" in c:
             shown[c] = shown[c].map(lambda v: f"{v:.1f}")
+        elif "シャープ" in c:
+            shown[c] = shown[c].map(lambda v: f"{v:+.2f}" if "差" in c else f"{v:.2f}")
+        elif "窓の数" in c:
+            shown[c] = shown[c].map(lambda v: f"{int(v)}")
         else:
             shown[c] = shown[c].map(f)
     return shown.to_string()
@@ -437,7 +548,10 @@ def main(argv=None):
     ap.add_argument("--windows", type=int, nargs="+", default=[10, 15, 20], help="ローリング期間（年）")
     ap.add_argument("--asset", action="append", default=[], help="資産を追加 例: --asset EM=EEM:USD")
     ap.add_argument("--portfolio", action="append", default=[], help="配分を追加 例: --portfolio US70JP30=US:0.7,JP:0.3")
-    ap.add_argument("--rebalance", choices=["annual", "monthly", "none"], default="annual")
+    ap.add_argument("--rebalance", choices=REBALANCE_METHODS, default="annual", help="配分の比較に使うリバランス方法")
+    ap.add_argument("--band", type=float, default=0.05, help="band 方式のしきい値（0.05 = 目標から5%ポイントずれたら戻す）")
+    ap.add_argument("--cost", type=float, default=0.0, help="売買コスト率（0.001 = 売買額の0.1%）")
+    ap.add_argument("--rebalance-window", type=int, default=10, help="リバランス比較のローリング期間（年）")
     ap.add_argument("--no-hedge", action="store_true", help="為替ヘッジ比較を省略")
     ap.add_argument("--demo", action="store_true", help="ダミーデータで動作確認（ネット接続不要）")
     ap.add_argument("--out", default="output", help="出力フォルダ")
@@ -462,7 +576,7 @@ def main(argv=None):
         print("  ※ダミーデータです。結果は実際の市場とは無関係です。")
         prices, fx, rates = load_demo(assets, start)
     else:
-        prices, fx, rates = load_real(assets, start, hedge)
+        prices, fx, rates = load_real(assets, start)
 
     jpy, local, fx_ret = build_returns(prices, fx, rates, assets, hedge)
     sl = slice(start, args.end)
@@ -473,14 +587,18 @@ def main(argv=None):
         if missing:
             print(f"  配分 {name} は資産 {missing} が無いため省略")
             continue
-        jpy[name] = simulate_portfolio(jpy, w, args.rebalance)
+        jpy[name] = simulate_portfolio(jpy, w, args.rebalance, args.band, args.cost)
 
     # 色はエンティティ名に固定で割り当て（グラフ間で同じ色）
     names = list(jpy.columns)
     ordered = [n for n in names if not n.endswith("_H")] + [n for n in names if n.endswith("_H")]
     colors = {n: PALETTE[i % len(PALETTE)] for i, n in enumerate(ordered)}
 
-    summary = summarize(jpy, args.windows)
+    if rates is not None:
+        rf = (rates["JP"].reindex(jpy.index).ffill() / 100 / 12).fillna(0)
+    else:
+        rf = pd.Series(0.0, jpy.index)
+    summary = summarize(jpy, rf, args.windows)
     fxdec = fx_decomposition(local, jpy, fx_ret, assets)
     summary.to_csv(out / "summary.csv", encoding="utf-8-sig")
     fxdec.to_csv(out / "fx_decomposition.csv", encoding="utf-8-sig")
@@ -500,6 +618,14 @@ def main(argv=None):
         plot_growth(jpy[pairs], colors, out / "5_hedged_vs_unhedged.png",
                     "FX-hedged (_H, approx.) vs. unhedged")
 
+    valid = {k: v for k, v in portfolios.items() if all(c in jpy for c in v)}
+    print("リバランスの比較を計算中…")
+    rb_full, rb_wins, rb_rolling = compare_rebalance(jpy, rf, valid, args.rebalance_window, args.band, args.cost)
+    rb_full.to_csv(out / "rebalance_full_period.csv", encoding="utf-8-sig")
+    if not rb_wins.empty:
+        rb_wins.to_csv(out / "rebalance_rolling.csv", encoding="utf-8-sig")
+    plot_rebalance(rb_rolling, args.rebalance_window, out / "6_rebalance_sharpe.png")
+
     print()
     print(preset["note"])
     print(f"リバランス: {args.rebalance} / 名前の末尾 _H は為替ヘッジ付き（近似）")
@@ -514,6 +640,15 @@ def main(argv=None):
         print("  株と為替の相関:", ", ".join(f"{k} {v:+.2f}" for k, v in corr.items()),
               "（プラス＝株安のとき円高になりやすく、円建ての値動きが大きくなる）")
         print()
+    print(f"■ リバランスの比較（無リスク金利＝円短期金利、band={args.band:.0%}, 売買コスト={args.cost:.2%}）")
+    print("  全期間:")
+    print(fmt_table(rb_full))
+    if not rb_wins.empty:
+        print()
+        print(f"  {args.rebalance_window}年ローリング（毎月ずらした開始時点ごとに、買いっぱなしとシャープレシオを比較）:")
+        print(fmt_table(rb_wins))
+        print("  ※窓は互いに重なっているので独立な試行ではありません。勝率は『傾向』として読んでください。")
+    print()
     print(f"グラフと CSV を {out.resolve()} に保存しました。")
 
 
