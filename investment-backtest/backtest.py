@@ -117,10 +117,9 @@ def fetch_yahoo(ticker: str, start: str) -> pd.Series:
 
 def fetch_fred(series_id: str) -> pd.Series:
     df = pd.read_csv(FRED_URL.format(series_id), na_values=".")
-    df.iloc[:, 0] = pd.to_datetime(df.iloc[:, 0])
-    s = df.set_index(df.columns[0])[series_id].astype(float)
-    s.index = pd.DatetimeIndex(s.index)
-    return to_month_end(s.rename(series_id))
+    idx = pd.DatetimeIndex(pd.to_datetime(df.iloc[:, 0]))
+    s = pd.Series(pd.to_numeric(df[series_id], errors="coerce").values, index=idx, name=series_id)
+    return to_month_end(s)
 
 
 def fetch_usdjpy(start: str) -> pd.Series:
